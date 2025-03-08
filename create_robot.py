@@ -60,13 +60,16 @@ joint_info = [
     {'name':  'r_finder_5', 'parent':  'r_fingers', 'type': 2},     # 44
 ]
 
-def create_robot():
+def create_robot(shape=None):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     smpl = SMPL(model_path="../climb_force_est/data/smpl/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl").to(device)
 
     pose = torch.zeros(1, 72, requires_grad=False).to(device) # Pose parameters
-    shape = torch.zeros(1, 10, requires_grad=False).to(device)  # Shape parameters
+    if shape is None:
+        shape = torch.zeros(1, 10, requires_grad=False).to(device)  # Shape parameters
+    else:
+        shape = torch.tensor(shape, requires_grad=False).to(device).unsqueeze(0)
     translation = torch.tensor([[0.0, 0.0, 0.0]], requires_grad=False).to(device) # Translation parameters
 
     output = smpl.forward(global_orient=pose[:, :3], body_pose=pose[:, 3:], betas=shape, transl=translation)
@@ -111,9 +114,9 @@ def create_robot():
         #     continue
 
         if joint_name == "pelvis":
-            # base_trans = np.array(self.smpl_neutral_pose[joint_id])
-            # joint_placement = pin.SE3(pin.utils.eye(3), np.matrix(base_trans).T)
-            joint_offset = torch.eye(4, device=device)
+            base_trans = neutral_pose[joint_id]
+            joint_offset = homogeneous_transform(base_trans, torch.tensor([1., 0., 0., 0.], device=device))
+            # joint_offset = torch.eye(4, device=device)
         else:
             joint_trans = neutral_pose[joint_id] - neutral_pose[parent_id]
             joint_offset = homogeneous_transform(joint_trans, torch.tensor([1., 0., 0., 0.], device=device))

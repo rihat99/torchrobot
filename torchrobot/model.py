@@ -20,6 +20,8 @@ class RobotModel:
         self.nq = 0
         self.nv = 0
 
+        self.joint_info = []
+
     def addJoint(self, name, parent_id=None, joint_type='spherical', joint_offset=None):
         """
         Adds a joint to the robot model.
@@ -62,6 +64,13 @@ class RobotModel:
         self.njoints += 1
         self.nq += joint.nq
         self.nv += joint.nv
+
+        self.joint_info.append({
+            'name': name,
+            'nq': joint.nq,
+            'nv': joint.nv,
+            'joint_type': joint_type
+        })
         
         return joint_id
 
@@ -110,28 +119,9 @@ class RobotModel:
         return len(self.geometry_objects) - 1
 
 
-    def split_config(self, q):
-        """
-        Splits a joint configuration tensor into individual joint configurations.
-        
-        Parameters:
-          - q: tensor of shape (nq,) or (batch, nq).
-          
-        Returns:
-          - joint_configs: list of joint configurations.
-        """
-        
-        joint_config = []
-        idx = 0
-        for joint in self.joints:
-            if joint.nq == 0:
-                joint_config.append(None)
-            else:
-                joint_config.append(q[..., idx:idx + joint.nq])
-                idx += joint.nq
-        return joint_config
+
     
-    def neeutal_pose(self):
+    def neutral_pose(self):
         """
         Returns the neutral pose of the robot model.
         """
@@ -144,18 +134,10 @@ class RobotModel:
         q = torch.cat(joint_config, dim=0)
         return q
 
-    # def create_data(self):
-    #     """
-    #     Creates a RobotData instance with default joint configurations.
-    #     """
-    #     data = RobotData()
-    #     for idx, joint in enumerate(self.joints):
-    #         if joint.joint_type == 'spherical':
-    #             # Clone default configuration and enable gradients.
-    #             data.joint_values[idx] = {'q': joint.default_q.clone().detach().requires_grad_()}
-    #         elif joint.joint_type == 'freeflyer':
-    #             data.joint_values[idx] = {
-    #                 'translation': joint.default_translation.clone().detach().requires_grad_(),
-    #                 'q': joint.default_q.clone().detach().requires_grad_()
-    #             }
-    #     return data
+    def create_data(self):
+        """
+        Creates a RobotData instance with default joint configurations.
+        """
+        data = RobotData(self.nq, self.nv, self.joint_info, self.device)
+        
+        return data

@@ -61,20 +61,25 @@ def homogeneous_transform(translation, q):
 
     return T
 
-def axis_angle_to_quaternion(axis_angle):
 
-    axis_angle = np.asarray(axis_angle, dtype=np.float64)
-    theta = np.linalg.norm(axis_angle)  # Compute the rotation angle
+def axis_angle_to_quaternion(axis_angle: torch.Tensor) -> torch.Tensor:
+    """
+    Convert rotations given as axis/angle to quaternions.
 
-    if theta < 1e-10:  # Handle near-zero rotation (return identity quaternion)
-        return np.array([0.0, 0.0, 0.0, 1.0])
+    Args:
+        axis_angle: Rotations given as a vector in axis angle form,
+            as a tensor of shape (..., 3), where the magnitude is
+            the angle turned anticlockwise in radians around the
+            vector's direction.
 
-    axis = axis_angle / theta  # Normalize to get the unit axis
-    quaternion = Rotation.from_rotvec(axis_angle).as_quat()
-
-    quaternion = [quaternion[3], quaternion[0], quaternion[1], quaternion[2]]
-
-    return quaternion  # [x, y, z, w]
+    Returns:
+        quaternions with real part first, as tensor of shape (..., 4).
+    """
+    angles = torch.norm(axis_angle, p=2, dim=-1, keepdim=True)
+    sin_half_angles_over_angles = 0.5 * torch.sinc(angles * 0.5 / torch.pi)
+    return torch.cat(
+        [torch.cos(angles * 0.5), axis_angle * sin_half_angles_over_angles], dim=-1
+    )
 
 
 def rgb_to_hex(color, prefix="0x"):
@@ -122,3 +127,84 @@ def align_box_to_vector(vector, box_center, target_center):
     T_vector = target_center - R_matrix @ box_center
 
     return R_matrix, T_vector
+
+def skew_symmetric(p):
+    """
+    Compute the skew-symmetric matrix of a 3D vector p.
+    """
+    p0, p1, p2 = torch.unbind(p, dim=-1)
+    zero = torch.zeros_like(p0)
+    return torch.stack([
+        torch.stack([zero, -p2, p1], dim=-1),
+        torch.stack([p2, zero, -p0], dim=-1),
+        torch.stack([-p1, p0, zero], dim=-1)
+    ], dim=-2)
+
+
+
+def adjoint_transform(T: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the 6x6 adjoint transformation of a 4x4 homogeneous transform T.
+    T is assumed to have shape (4,4). Returns a 6x6 matrix A such that,
+    for a twist ξ (6-vector), the transformed twist is A @ ξ.
+    
+    Note: The first three components of ξ represent the angular velocity
+    in axis–angle format.
+    """
+    R = T[..., :3, :3]  # shape: (..., 3, 3)
+    p = T[..., :3, 3]   # shape: (..., 3)
+
+    # Construct each row of the skew symmetric matrix
+    p_hat = skew_symmetric(p)
+
+    A_upper = torch.cat([R, torch.zeros_like(R)], dim=-1)
+    A_lower = torch.cat([p_hat @ R, R], dim=-1)
+    A = torch.cat([A_upper, A_lower], dim=-2)
+    return A
+
+def adjoint_bracket_operator(V):
+    """
+    Compute the Adjoint Bracket Operator (ad_V) for batched spatial velocities.
+    
+    Args:
+        V: Tensor of shape (..., 6), where the last dimension contains (omega, v).
+
+    Returns:
+        Tensor of shape (..., 6, 6) representing the adjoint bracket operator.
+    """
+    omega = V[..., :3]  # Angular velocity
+    v = V[..., 3:]      # Linear velocity
+    
+    # Compute skew-symmetric matrices
+    omega_hat = skew_symmetric(omega)  # (..., 3, 3)
+    v_hat = skew_symmetric(v)          # (..., 3, 3)
+    
+    # Construct the adjoint bracket matrix
+    batch_shape = omega.shape[:-1]
+    zero_block = torch.zeros(*batch_shape, 3, 3, device=V.device, dtype=V.dtype)
+    
+    ad_V = torch.cat([
+        torch.cat([omega_hat, zero_block], dim=-1),
+        torch.cat([v_hat, omega_hat], dim=-1)
+    ], dim=-2)  # Concatenate to form (..., 6, 6)
+    
+    return ad_V
+
+
+def inverse_homogeneous_transform(T: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the inverse of a 4x4 homogeneous transform T.
+    T is assumed to have shape (4,4). Returns a 4x4 matrix T_inv.
+    """
+    R = T[..., :3, :3]  # shape: (..., 3, 3)
+    p = T[..., :3, 3]   # shape: (..., 3)
+
+    R_T = R.transpose(-2, -1)
+    p_inv = -R_T @ p.unsqueeze(-1)
+
+    T_inv = torch.cat([
+        torch.cat([R_T, p_inv], dim=-1),
+        torch.tensor([0, 0, 0, 1], device=T.device).repeat(T.shape[:-2] + (1, 1))
+        ],
+        dim=-2)
+    return T_inv
