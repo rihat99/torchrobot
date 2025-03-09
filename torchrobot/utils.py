@@ -190,6 +190,35 @@ def adjoint_bracket_operator(V):
     
     return ad_V
 
+def adjoint_bracket_operator_dual(V):
+    """
+    Compute the Adjoint Bracket Operator (ad_V) for batched spatial velocities.
+    
+    Args:
+        V: Tensor of shape (..., 6), where the last dimension contains (omega, v).
+
+    Returns:
+        Tensor of shape (..., 6, 6) representing the adjoint bracket operator.
+    """
+    omega = V[..., :3]  # Angular velocity
+    v = V[..., 3:]      # Linear velocity
+    
+    # Compute skew-symmetric matrices
+    omega_hat = skew_symmetric(omega)  # (..., 3, 3)
+    v_hat = skew_symmetric(v)          # (..., 3, 3)
+    
+    # Construct the adjoint bracket matrix
+    batch_shape = omega.shape[:-1]
+    zero_block = torch.zeros(*batch_shape, 3, 3, device=V.device, dtype=V.dtype)
+    
+    ad_V = torch.cat([
+        torch.cat([omega_hat, v_hat], dim=-1),
+        torch.cat([zero_block, omega_hat], dim=-1)
+    ], dim=-2)  # Concatenate to form (..., 6, 6)
+    
+    return ad_V
+
+
 
 def inverse_homogeneous_transform(T: torch.Tensor) -> torch.Tensor:
     """

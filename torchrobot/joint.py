@@ -1,4 +1,6 @@
 import torch
+
+from .body import RigidBody
 from .utils import *
 
 class Joint:
@@ -16,10 +18,14 @@ class Joint:
         self.name = name
         self.offset = offset  # fixed 4x4 transform
         self.parent_id = parent_id
-        self.bodies = []
+        self.body = None
         self.gemetry_objects = []
         self.joint_type = None
         self.device = device
+
+        self.motion = None
+        self.twist = None
+        self.acceleration = None
 
     def process_config(self, config):
         raise NotImplementedError
@@ -27,12 +33,16 @@ class Joint:
     def forward_kinematics(self, config, parent_transform, parent_twist, parent_acceleration):
         
         motion, twist, acceleration = self.process_config(config)
+        self.motion = motion
+        self.twist = twist
+        self.acceleration = acceleration
 
         # Position of the joint in the world frame.
         joint_transform = parent_transform @ self.offset @ motion
 
         # Compute the spatial velocity of the joint in local frame.
         A = adjoint_transform(inverse_homogeneous_transform(self.offset @ motion))
+        # A = adjoint_transform(self.offset @ motion)
         local_twist = (A @ parent_twist.unsqueeze(-1)).squeeze(-1) + twist
 
         # Compute the spatial acceleration of the joint in local frame.

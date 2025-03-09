@@ -12,7 +12,7 @@ class RobotModel:
         self.device = device
 
         self.joints = []  # list of Joint instances
-        self.bodies = []  # list of RigidBody instances
+        # self.bodies = []  # list of RigidBody instances
         self.geometry_objects = []  # list of GeometryObject instances
         self.tree = {}    # dictionary: key = joint id, value = list of child joint ids
 
@@ -21,6 +21,13 @@ class RobotModel:
         self.nv = 0
 
         self.joint_info = []
+
+        self.gravity = torch.zeros(6, device=device)
+        # Set gravity along the z-axis.
+        self.gravity[5] = -9.81
+
+        self.end_effectors_ids = []
+        self.connections_ids = []
 
     def addJoint(self, name, parent_id=None, joint_type='spherical', joint_offset=None):
         """
@@ -74,31 +81,30 @@ class RobotModel:
         
         return joint_id
 
-    # def add_body(self, joint_id, mass, inertia, name=None, default_translation=None, default_orientation=None):
-    #     """
-    #     Adds a body to the model and attaches it to the joint with index joint_id.
+    def addBody(self, name, parent_joint_id, mass, com, inertia, offset=None):
+        """
+        Adds a body to the model and attaches it to the joint with index joint_id.
         
-    #     Parameters:
-    #       - joint_id: index of the joint to attach the body.
-    #       - mass: scalar mass.
-    #       - inertia: 3x3 inertia tensor.
-    #       - name: optional body identifier.
-    #       - default_translation: body pose translation relative to the joint.
-    #       - default_orientation: body pose orientation (quaternion) relative to the joint.
+        Parameters:
+            - name: body identifier.
+            - joint_id: index of the joint to attach the body.
+            - mass: body mass.
+            - com: body center of mass.
+            - inertia: body inertia tensor.
+            - offset: body pose relative to the joint.
           
-    #     Returns:
-    #       - body_id: index of the newly added body.
-    #     """
-    #     if name is None:
-    #         name = f"body_{len(self.bodies)}"
-    #     body = RigidBody(name, mass, inertia,
-    #                      default_translation=default_translation,
-    #                      default_orientation=default_orientation)
-    #     self.bodies.append(body)
-    #     # Attach the body to the specified joint.
-    #     self.joints[joint_id].body = body
-    #     return len(self.bodies) - 1
+        Returns:
+          - body_id: index of the newly added body.
+        """
 
+        if self.joints[parent_joint_id].body is not None:
+            raise ValueError("Each joint can only have one body.")
+
+        body = RigidBody(name, parent_joint_id, mass, com, inertia, offset, device=self.device)
+        self.joints[parent_joint_id].body = body
+        # self.bodies.append(body)
+        # return len(self.bodies) - 1
+        
 
     def addGeometryObject(self, name, parent_id, shape, body_offset, color=None):
         """
@@ -118,9 +124,6 @@ class RobotModel:
         self.geometry_objects.append(geometry)
         return len(self.geometry_objects) - 1
 
-
-
-    
     def neutral_pose(self):
         """
         Returns the neutral pose of the robot model.

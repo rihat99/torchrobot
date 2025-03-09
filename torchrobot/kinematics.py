@@ -68,3 +68,58 @@ def ForwardKinematics(
     data.joint_velocities = joint_velocities
     data.joint_accelerations = joint_accelerations
     data.body_transforms = body_transforms
+
+
+def CenterOfMass(
+        model: RobotModel, 
+        data:RobotData, 
+        q:torch.Tensor, 
+        v:torch.Tensor=None,
+        a:torch.Tensor=None,):
+    """
+    Computes the center of mass for the robot model given a joint configuration.
+    
+    Parameters:
+      - model: an instance of RobotModel containing the static kinematic structure.
+      - joint_config: a dictionary mapping joint id to its configuration.
+          For spherical joints: {'q': tensor(4)}
+          For freeflyer joints: {'translation': tensor(3), 'q': tensor(4)}
+      - base_transform: 4x4 tensor representing the base frame transform (default identity).
+      
+    Returns:
+      - com: 3x1 tensor representing the center of mass.
+    """
+    
+    joint_transforms = data.joint_transforms
+    com = torch.zeros(3, device=model.device)
+    total_mass = 0.0
+
+    body_masses = []
+    body_coms = []
+
+    for joint_id, joint in enumerate(model.joints):
+        if joint.body is not None:
+                
+            body_mass = joint.body.mass
+            body_com = joint.body.com
+            body_transform = joint_transforms[joint_id]
+            body_masses.append(body_mass)
+            
+            rotation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=model.device)
+            com_world = body_transform @ homogeneous_transform(body_com, rotation)
+            com_world = com_world[..., :3, 3]
+
+            body_coms.append(com_world)
+
+    total_mass = torch.sum(torch.stack(body_masses, dim=0))
+    # print(total_mass.shape)
+    # print(torch.stack(body_masses, dim=0).unsqueeze(-1).shape)
+    # print(torch.stack(body_coms, dim=-1).shape)
+    com = torch.sum(torch.stack(body_masses, dim=0).unsqueeze(-1) * torch.stack(body_coms, dim=-2), dim=-2) / total_mass
+
+    data.com = com
+    data.body_com = {i: body_coms[i] for i in range(len(body_coms))}
+    data.total_mass = total_mass
+
+    return com
+    

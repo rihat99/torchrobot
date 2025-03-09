@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pickle
 
 import torch
 from torchrobot.model import RobotModel
@@ -60,6 +61,19 @@ joint_info = [
     {'name':  'r_finder_5', 'parent':  'r_fingers', 'type': 2},     # 44
 ]
 
+def loadInertias(pathToInertia, mass_scale=1.):
+    with open(pathToInertia, 'rb') as inputf:
+        inertias_temp = pickle.load(inputf, encoding='latin-1')
+        inertias = {}
+        for k in inertias_temp.keys():
+            # inertias[self.name+'_'+k] = inertias_temp[k]
+            mass = inertias_temp[k][0] * mass_scale
+            I = inertias_temp[k][1] * mass_scale
+            inertias[k] = (mass, I)
+
+        print("inertias loaded from "+pathToInertia)
+        return inertias
+
 def create_robot(shape=None):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -79,6 +93,8 @@ def create_robot(shape=None):
     # print("Joints", output.joints.shape)
 
     neutral_pose = output.joints.squeeze()
+
+    inertias = loadInertias("test_data/full_body_inertia.pkl")
 
     joint_name_to_id = {joint["name"]: i for i, joint in enumerate(joint_info)}
     joint_children = {joint["name"]: [] for joint in joint_info}
@@ -101,7 +117,11 @@ def create_robot(shape=None):
     body_radius = 0.015
 
     model = RobotModel(device=device)
+    model.gravity[3:6] = torch.tensor([0., 9.81, 0.], device=device)
+    model.end_effectors_ids = [10, 11, 15, 22, 23, 9]
+    model.connections_ids = [9, 0]
 
+    # Create joints
     for i, joint in enumerate(joint_info):
 
         joint_name = joint["name"]
@@ -127,7 +147,34 @@ def create_robot(shape=None):
 
         joint_ids[joint_name] = joint_id
 
+    # Add bodies to the joints
+    for joint in joint_info:
+        joint_name = joint["name"]
+        joint_id = joint_name_to_id[joint_name]
+        parent_name = joint["parent"]
+        parent_id = joint_name_to_id[parent_name] if parent_name is not None else None
 
+        if joint_id > 23:
+            continue
+
+        if joint_name == "pelvis":
+            com = torch.tensor([0., 0., 0.], device=device)
+        elif len(joint_children[joint_name]) > 0 and joint_ids[joint_children[joint_name][0]] < 24:
+            child_name = joint_children[joint_name][0]
+            child_id = joint_name_to_id[child_name]
+            com = (neutral_pose[child_id] - neutral_pose[joint_id]) / 2
+        else:
+            com = (neutral_pose[joint_id] - neutral_pose[parent_id]) / 2.4
+
+
+        mass = torch.tensor(inertias[joint_name + '_link'][0], device=device)
+        inertia_matrix = torch.tensor(inertias[joint_name + '_link'][1], device=device)
+
+        model.addBody(joint_name, joint_id, mass, com, inertia_matrix)
+
+
+
+    # Add geometry objects to joints
     for joint in joint_info:
         joint_name = joint["name"]
         joint_type = joint['type']

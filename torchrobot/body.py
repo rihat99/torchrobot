@@ -1,34 +1,46 @@
 import torch
 import numpy as np
-from .utils import rgb_to_hex
+from .utils import rgb_to_hex, skew_symmetric
 
 import meshcat.geometry as g
 
 class RigidBody:
     """
     Rigid body defined by its name, mass, inertia, and a pose relative to its joint.
-    The pose is represented by:
-      - default_translation: a 3-vector (default zero)
-      - default_orientation: a quaternion (default identity)
+
     """
-    def __init__(self, name, mass, inertia, default_translation=None, default_orientation=None):
+    def __init__(self, name, parent_joint_id, mass, com, inertia, offset=None, device='cpu'):
+        self.device = device
+
         self.name = name
+        self.parent_joint_id = parent_joint_id
+        self.com = com
         self.mass = mass
         self.inertia = inertia  # 3x3 tensor
-        if default_translation is None:
-            default_translation = torch.zeros(3)
-        if default_orientation is None:
-            default_orientation = torch.tensor([1.0, 0.0, 0.0, 0.0])
-        self.default_translation = default_translation
-        self.default_orientation = default_orientation
+        self.offset = offset
+
+        self.compute_inertia_matrix()
+
+
+    def compute_inertia_matrix(self):
+        """
+        Computes the inertia matrix of the rigid body.
+        """
+        skew_com = skew_symmetric(self.com)
+        self.inertia_matrix = torch.zeros(6, 6, device=self.device)
+        self.inertia_matrix[:3, :3] = self.inertia - self.mass * skew_com @ skew_com
+        self.inertia_matrix[:3, 3:] = self.mass * skew_com
+        self.inertia_matrix[3:, :3] = -self.mass * skew_com
+        # self.inertia_matrix[:3, 3:] = -self.mass * skew_com
+        # self.inertia_matrix[3:, :3] = +self.mass * skew_com
+        self.inertia_matrix[3:, 3:] = self.mass * torch.eye(3, device=self.device)
 
 
 class GeometryObject:
     """
     Geometry object defined by its name, type, and pose relative to its body.
     The pose is represented by:
-      - default_translation: a 3-vector (default zero)
-      - default_orientation: a quaternion (default identity)
+
     """
     def __init__(self, name, shape, offset, parent_id=None, color=None, device='cpu'):
         self.name = name

@@ -30,6 +30,10 @@ class RobotData:
         self.joint_accelerations = {i: None for i in range(len(joint_info))}
         self.body_transforms = {}
 
+        self.com = torch.zeros(3, device=self.device)
+        self.body_com = {}
+        self.total_mass = 0.0
+
       
     def split_config(self, q: torch.Tensor, v: torch.Tensor=None, a: torch.Tensor=None):
         """
