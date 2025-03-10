@@ -29,6 +29,15 @@ class Joint:
 
     def process_config(self, config):
         raise NotImplementedError
+    
+    def get_torque(self, force):
+        """
+        Compute the joint torque given the joint force.
+        force: 6D force tensor.
+        Returns: coresponging torque tensor.
+        """
+
+        raise NotImplementedError
 
     def forward_kinematics(self, config, parent_transform, parent_twist, parent_acceleration):
         
@@ -89,6 +98,14 @@ class SphericalJoint(Joint):
             acceleration = torch.zeros(shape + (6,), device=self.device)
 
         return motion, twist, acceleration
+    
+    def get_torque(self, force):
+        """
+        Compute the joint torque given the joint force.
+        force: 6D force tensor.
+        Returns: coresponging torque tensor.
+        """
+        return force[..., 0:3]
 
 class FreeFlyerJoint(Joint):
     """
@@ -129,6 +146,14 @@ class FreeFlyerJoint(Joint):
             acceleration = torch.zeros(shape + (6,), device=self.device)
 
         return motion, twist, acceleration
+    
+    def get_torque(self, force):
+        """
+        Compute the joint torque given the joint force.
+        force: 6D force tensor.
+        Returns: coresponging torque tensor.
+        """
+        return force
 
     
 class FixedJoint(Joint):

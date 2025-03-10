@@ -87,5 +87,11 @@ def RNEA(
         parent_id = model.joints[joint_id].parent_id
         recurse_backward(parent_id, joint_id, joint_internal_forces[joint_id])
 
+    tau = []
+    for joint_id, joint in enumerate(model.joints):
+        if joint.nv > 0:
+            tau.append(joint.get_torque(joint_internal_forces[joint_id]))
 
-    return joint_internal_forces
+    tau = torch.concatenate(tau, dim=-1)
+
+    return tau
