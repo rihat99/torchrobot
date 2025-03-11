@@ -3,9 +3,8 @@ import numpy as np
 import pickle
 
 import torch
-from torchrobot.model import RobotModel
-from torchrobot.utils import homogeneous_transform, align_box_to_vector
-from torchrobot.kinematics import ForwardKinematics
+from .torchrobot.model import RobotModel
+from .torchrobot.utils import homogeneous_transform, align_box_to_vector
 
 import meshcat.geometry as g
 
@@ -74,10 +73,11 @@ def loadInertias(pathToInertia, mass_scale=1.):
         print("inertias loaded from "+pathToInertia)
         return inertias
 
-def create_robot(shape=None):
+def create_robot(smpl, shape=None, inertia_path=None, device=None):
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    smpl = SMPL(model_path="../climb_force_est/data/smpl/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl").to(device)
+    # smpl = SMPL(model_path="../data/smpl/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl").to(device)
 
     pose = torch.zeros(1, 72, requires_grad=False).to(device) # Pose parameters
     if shape is None:
@@ -87,14 +87,10 @@ def create_robot(shape=None):
     translation = torch.tensor([[0.0, 0.0, 0.0]], requires_grad=False).to(device) # Translation parameters
 
     output = smpl.forward(global_orient=pose[:, :3], body_pose=pose[:, 3:], betas=shape, transl=translation)
-    # output = smpl.forward(betas=shape)
-
-    # print("Verices", output.vertices.squeeze().shape)
-    # print("Joints", output.joints.shape)
 
     neutral_pose = output.joints.squeeze()
 
-    inertias = loadInertias("test_data/full_body_inertia.pkl")
+    inertias = loadInertias(inertia_path)
 
     joint_name_to_id = {joint["name"]: i for i, joint in enumerate(joint_info)}
     joint_children = {joint["name"]: [] for joint in joint_info}

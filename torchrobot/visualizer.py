@@ -1,9 +1,9 @@
 import torch
 import numpy as np
 
-from torchrobot.model import RobotModel
-from torchrobot.robot_data import RobotData
-from torchrobot.kinematics import ForwardKinematics
+from .model import RobotModel
+from .robot_data import RobotData
+from .kinematics import ForwardKinematics
 
 import meshcat
 import meshcat.geometry as g
