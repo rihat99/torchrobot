@@ -30,6 +30,13 @@ class Joint:
     def process_config(self, config):
         raise NotImplementedError
     
+    def get_motion_subspace(self):
+        """
+        Compute the motion subspace of the joint.
+        Returns: 6xnv motion subspace matrix.
+        """
+        raise NotImplementedError
+    
     def get_torque(self, force):
         """
         Compute the joint torque given the joint force.
@@ -106,6 +113,11 @@ class SphericalJoint(Joint):
         Returns: coresponging torque tensor.
         """
         return force[..., 0:3]
+    
+    def get_motion_subspace(self):
+        S = torch.zeros(6, 3, device=self.device)
+        S[0:3, :] = torch.eye(3, device=self.device)
+        return S
 
 class FreeFlyerJoint(Joint):
     """
@@ -154,6 +166,13 @@ class FreeFlyerJoint(Joint):
         Returns: coresponging torque tensor.
         """
         return force
+    
+    def get_motion_subspace(self):
+        # S = torch.zeros(6, 6, device=self.device)
+        # S[0:3, 3:6] = torch.eye(3, device=self.device)
+        # S[3:6, 0:3] = torch.eye(3, device=self.device)
+        S = torch.eye(6, device=self.device)
+        return S
 
     
 class FixedJoint(Joint):

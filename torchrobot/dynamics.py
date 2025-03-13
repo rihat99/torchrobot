@@ -3,7 +3,7 @@ import torch
 from .utils import *
 from .model import RobotModel
 from .robot_data import RobotData
-
+from .kinematics import ForwardKinematics
 
 def RNEA(
         model: RobotModel, 
@@ -71,10 +71,9 @@ def RNEA(
         joint = model.joints[child_id]
 
         # A = adjoint_transform(joint.offset @ joint.motion)
-        A = adjoint_transform(inverse_homogeneous_transform(joint.offset @ joint.motion)).transpose(-2, -1)
+        A_star = adjoint_transform(inverse_homogeneous_transform(joint.offset @ joint.motion)).transpose(-2, -1)
 
-        joint_internal_forces[joint_id] += \
-            (A @ child_force.unsqueeze(-1)).squeeze(-1)
+        joint_internal_forces[joint_id] += (A_star @ child_force.unsqueeze(-1)).squeeze(-1)
 
         if joint_id not in model.connections_ids:
             parent_id = model.joints[joint_id].parent_id
@@ -95,3 +94,116 @@ def RNEA(
     tau = torch.concatenate(tau, dim=-1)
 
     return tau
+
+
+def CRBA(
+        model: RobotModel,
+        data: RobotData,
+        q: torch.Tensor,
+
+):
+    """
+    Computes the Composite Rigid Body Algorithm to compute the mass matrix.
+    
+    Args:
+        model: RobotModel instance.
+        data: RobotData instance.
+        q: Tensor of shape (batch, nq) representing joint configuration.
+        
+        Returns:
+        M: Tensor of shape (batch, nq, nq) representing the mass matrix.
+        
+    """
+
+
+    # forward pass (forward kinematics)
+    ForwardKinematics(model, data, q)
+
+    joint_composite_inertia = {}
+    for joint_id, joint in enumerate(model.joints):
+        if joint.nv > 0:
+            joint_composite_inertia[joint_id] = joint.body.inertia_matrix.repeat(q.size(0), 1, 1)
+
+    
+    M = torch.zeros(q.shape[0], model.nv, model.nv, device=model.device)
+
+    # Backward Pass
+    def recurse_backward(joint_id, child_id, child_composite_inertia):
+
+        i = child_id
+        ni = model.joints[i].nv
+        ii = 6 + (i-1) * 3 if i > 0 else 0
+        Si = model.joints[i].get_motion_subspace().unsqueeze(0)
+        F = child_composite_inertia @ Si
+        M[:, ii:ii+ni, ii:ii+ni] = Si.transpose(-2, -1) @ F
+
+
+        joint = model.joints[child_id]
+
+        # A = adjoint_transform(joint.offset @ joint.motion)
+        A = adjoint_transform(inverse_homogeneous_transform(joint.offset @ joint.motion))
+        # A_star = A.transpose(-2, -1)
+        # A_star = adjoint_transform(joint.offset @ joint.motion)
+
+        I_c = child_composite_inertia
+  
+        joint_composite_inertia[joint_id] += A.transpose(-2, -1) @ I_c @ A
+
+    
+        j = joint_id
+        c = child_id
+        while j is not None:
+            nj = model.joints[j].nv
+            jj = 6 + (j-1) * 3 if j > 0 else 0
+            Sj = model.joints[j].get_motion_subspace().unsqueeze(0)
+            
+            A = adjoint_transform(inverse_homogeneous_transform(model.joints[c].offset @ model.joints[c].motion))
+            F = A.transpose(-2, -1) @ F
+            M[:, jj:jj+nj, ii:ii+ni] = Sj.transpose(-2, -1) @ F
+            M[:, ii:ii+ni, jj:jj+nj] = M[:, jj:jj+nj, ii:ii+ni].transpose(-2, -1)
+        
+            c = j
+            j = model.joints[j].parent_id
+
+        if joint_id not in model.connections_ids:
+            parent_id = model.joints[joint_id].parent_id
+            
+            recurse_backward(parent_id, joint_id, joint_composite_inertia[joint_id])
+
+
+    for joint_id in model.end_effectors_ids:
+        # if model.joints[joint_id].parent_id is not None:
+        parent_id = model.joints[joint_id].parent_id
+        recurse_backward(parent_id, joint_id, joint_composite_inertia[joint_id])
+
+
+    M[:, 0:6, 0:6] = joint_composite_inertia[0]
+
+    # ii = 0
+    # for i in range(len(model.joints)):
+    #     if model.joints[i].nv > 0:
+    #         nv_i = model.joints[i].nv
+    #         S_i = model.joints[i].get_motion_subspace().unsqueeze(0).transpose(-2, -1)
+    #         jj = 0
+    #         for j in range(len(model.joints)):
+    #             if model.joints[j].nv > 0:
+    #                 nv_j = model.joints[j].nv
+
+    #                 if i == j:
+    #                     S_j = model.joints[j].get_motion_subspace().unsqueeze(0)
+    #                     M[:, ii:ii+nv_i, jj:jj+nv_j] = S_i @ joint_composite_inertia[i] @ S_j
+    #                 else:
+    #                     joint = model.joints[j]
+    #                     A_star = adjoint_transform(joint.offset @ joint.motion)
+
+    #                     S_j = model.joints[j].get_motion_subspace().unsqueeze(0)
+    #                     M_ij = S_i @ A_star @ joint_composite_inertia[i] @ S_j
+
+    #                     M[:, ii:ii+nv_i, jj:jj+nv_j] = M_ij
+
+    #                 jj += nv_j
+
+    #         ii += nv_i
+
+    return M, joint_composite_inertia
+

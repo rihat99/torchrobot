@@ -3,8 +3,8 @@ import numpy as np
 import pickle
 
 import torch
-from .torchrobot.model import RobotModel
-from .torchrobot.utils import homogeneous_transform, align_box_to_vector
+from torchrobot.model import RobotModel
+from torchrobot.utils import homogeneous_transform, align_box_to_vector
 
 import meshcat.geometry as g
 
