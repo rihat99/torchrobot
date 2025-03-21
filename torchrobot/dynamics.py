@@ -140,10 +140,7 @@ def CRBA(
 
         joint = model.joints[child_id]
 
-        # A = adjoint_transform(joint.offset @ joint.motion)
         A = adjoint_transform(inverse_homogeneous_transform(joint.offset @ joint.motion))
-        # A_star = A.transpose(-2, -1)
-        # A_star = adjoint_transform(joint.offset @ joint.motion)
 
         I_c = child_composite_inertia
   
@@ -179,31 +176,84 @@ def CRBA(
 
     M[:, 0:6, 0:6] = joint_composite_inertia[0]
 
-    # ii = 0
-    # for i in range(len(model.joints)):
-    #     if model.joints[i].nv > 0:
-    #         nv_i = model.joints[i].nv
-    #         S_i = model.joints[i].get_motion_subspace().unsqueeze(0).transpose(-2, -1)
-    #         jj = 0
-    #         for j in range(len(model.joints)):
-    #             if model.joints[j].nv > 0:
-    #                 nv_j = model.joints[j].nv
 
-    #                 if i == j:
-    #                     S_j = model.joints[j].get_motion_subspace().unsqueeze(0)
-    #                     M[:, ii:ii+nv_i, jj:jj+nv_j] = S_i @ joint_composite_inertia[i] @ S_j
-    #                 else:
-    #                     joint = model.joints[j]
-    #                     A_star = adjoint_transform(joint.offset @ joint.motion)
+    # return M, joint_composite_inertia
+    return M
 
-    #                     S_j = model.joints[j].get_motion_subspace().unsqueeze(0)
-    #                     M_ij = S_i @ A_star @ joint_composite_inertia[i] @ S_j
 
-    #                     M[:, ii:ii+nv_i, jj:jj+nv_j] = M_ij
 
-    #                 jj += nv_j
+def CentroidalMomentum(
+        model: RobotModel, 
+        data:RobotData):
+    """
+    Computes the center of mass for the robot model given a joint configuration.
+    
+    Parameters:
+      - model: an instance of RobotModel containing the static kinematic structure.
+      - joint_config: a dictionary mapping joint id to its configuration.
+          For spherical joints: {'q': tensor(4)}
+          For freeflyer joints: {'translation': tensor(3), 'q': tensor(4)}
+      - base_transform: 4x4 tensor representing the base frame transform (default identity).
+      
+    Returns:
+      - com: 3x1 tensor representing the center of mass.
+    """
+    
+    joint_transforms = data.joint_transforms
+    com = torch.zeros(3, device=model.device)
+    total_mass = 0.0
 
-    #         ii += nv_i
+    body_masses = []
+    body_coms = []
+    body_vcoms = []
+    body_acom = []
 
-    return M, joint_composite_inertia
+    for joint_id, joint in enumerate(model.joints):
+        if joint.body is not None:
+                
+            body_mass = joint.body.mass
+            body_com = joint.body.com
+            body_transform = joint_transforms[joint_id]
+            body_masses.append(body_mass)
+            
+            rotation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=model.device)
+            com_world = body_transform @ homogeneous_transform(body_com, rotation)
+            com_world = com_world[..., :3, 3] * body_mass
+            body_coms.append(com_world)
 
+    total_mass = torch.sum(torch.stack(body_masses, dim=0))
+    com = torch.sum(torch.stack(body_coms, dim=-2), dim=-2) / total_mass
+
+    for joint_id, joint in enumerate(model.joints):
+        if joint.body is not None:
+            
+            body_transform = joint_transforms[joint_id]
+            com_transform = homogeneous_transform(com, torch.tensor([1.0, 0.0, 0.0, 0.0], device=model.device))
+            com_transform = inverse_homogeneous_transform(com_transform) @ body_transform
+
+            A = adjoint_transform(inverse_homogeneous_transform(com_transform))
+            # A = adjoint_transform(com_transform)
+            inertia_matrix = joint.body.inertia_matrix
+            body_inertia = A.transpose(-1, -2) @ inertia_matrix.unsqueeze(0)
+            body_velocity = data.joint_velocities[joint_id]
+            vcom_world = (body_inertia @ body_velocity.unsqueeze(-1)).squeeze(-1)
+            body_vcoms.append(vcom_world)
+
+            body_acceleration = data.joint_accelerations[joint_id]
+            body_force = (inertia_matrix.unsqueeze(0) @ body_acceleration.unsqueeze(-1)).squeeze(-1) +\
+            (adjoint_bracket_operator_dual(body_velocity) @ (inertia_matrix.unsqueeze(0) @ body_velocity.unsqueeze(-1))).squeeze(-1)
+            acom_world = (A.transpose(-1, -2) @ body_force.unsqueeze(-1)).squeeze(-1)
+            body_acom.append(acom_world)
+
+
+        
+    total_mass = torch.sum(torch.stack(body_masses, dim=0))
+
+    com = torch.sum(torch.stack(body_coms, dim=-2), dim=-2) / total_mass
+    hg = torch.sum(torch.stack(body_vcoms, dim=-2), dim=-2)
+    dhg = torch.sum(torch.stack(body_acom, dim=-2), dim=-2)
+
+    data.com = com
+    data.total_mass = total_mass
+
+    return hg, dhg

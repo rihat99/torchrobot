@@ -50,12 +50,6 @@ def ForwardKinematics(
         joint_transforms[joint_id] = joint_transform
         joint_velocities[joint_id] = local_twist
         joint_accelerations[joint_id] = local_acceleration
-
-        # If a body is attached, compute its transform.
-        # if joint.body is not None:
-        #     body_motion = homogeneous_transform(joint.body.default_translation, joint.body.default_orientation)
-        #     T_body = T @ body_motion
-        #     body_transforms[joint.body.name] = T_body
         
         # Recurse for child joints.
         for child_id in model.tree.get(joint_id, []):
@@ -107,19 +101,58 @@ def CenterOfMass(
             
             rotation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=model.device)
             com_world = body_transform @ homogeneous_transform(body_com, rotation)
-            com_world = com_world[..., :3, 3]
-
+            com_world = com_world[..., :3, 3] * body_mass
             body_coms.append(com_world)
-
+ 
     total_mass = torch.sum(torch.stack(body_masses, dim=0))
-    # print(total_mass.shape)
-    # print(torch.stack(body_masses, dim=0).unsqueeze(-1).shape)
-    # print(torch.stack(body_coms, dim=-1).shape)
-    com = torch.sum(torch.stack(body_masses, dim=0).unsqueeze(-1) * torch.stack(body_coms, dim=-2), dim=-2) / total_mass
+
+    com = torch.sum(torch.stack(body_coms, dim=-2), dim=-2) / total_mass
 
     data.com = com
+
     data.body_com = {i: body_coms[i] for i in range(len(body_coms))}
     data.total_mass = total_mass
 
     return com
+
+
+def computeVelocityAcceleration(
+        model: RobotModel,
+        data: RobotData,
+        q: torch.Tensor,
+        dt: float):
     
+    config = data.split_config(q)
+
+    v = torch.zeros(q.shape[0], model.nv, device=model.device)
+    a = torch.zeros(q.shape[0], model.nv, device=model.device)
+
+    idx = 0
+
+    with torch.no_grad():
+
+        for joint_id in range(model.njoints):
+            joint = model.joints[joint_id]
+            config_joint = config[joint_id]
+
+            # dq_joint = joint.compute_difference(config_joint['q'][1:], config_joint['q'][:-1])
+            # print(dq_joint.shape)
+
+            v_beg = joint.compute_difference(config_joint['q'][1].unsqueeze(0), config_joint['q'][0].unsqueeze(0)) / dt
+            v_mid = joint.compute_difference(config_joint['q'][2:], config_joint['q'][:-2]) / (2 * dt)
+            v_end = joint.compute_difference(config_joint['q'][-1].unsqueeze(0), config_joint['q'][-2].unsqueeze(0)) / dt
+
+            v_j = torch.cat([v_beg, v_mid, v_end], dim=0)
+
+            a_beg = (v_j[1] - v_j[0]) / dt
+            a_mid = (v_j[2:] - v_j[:-2]) / (2 * dt)
+            a_end = (v_j[-1] - v_j[-2]) / dt
+
+            a_j = torch.cat([a_beg.unsqueeze(0), a_mid, a_end.unsqueeze(0)], dim=0)
+
+            v[:, idx: idx + joint.nv] = v_j
+            a[:, idx: idx + joint.nv] = a_j
+            idx += joint.nv
+
+    return v, a
+

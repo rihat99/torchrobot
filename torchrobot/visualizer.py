@@ -32,7 +32,7 @@ class Visualizer:
 
     def set_configuration(self, q):
 
-        q[2] -= 5.0
+        # q[2] -= 5.0
 
         ForwardKinematics(self.robot_model, self.data, q)
         joint_trans = self.data.joint_transforms

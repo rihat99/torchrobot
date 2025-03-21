@@ -3,8 +3,8 @@ import numpy as np
 import pickle
 
 import torch
-from torchrobot.model import RobotModel
-from torchrobot.utils import homogeneous_transform, align_box_to_vector
+from .torchrobot.model import RobotModel
+from .torchrobot.utils import homogeneous_transform, align_box_to_vector
 
 import meshcat.geometry as g
 
@@ -37,27 +37,27 @@ joint_info = [
     {'name':   'l_fingers', 'parent':    'l_wrist', 'type': 1},     # 22
     {'name':   'r_fingers', 'parent':    'r_wrist', 'type': 1},     # 23
 
-    {'name':        'nose', 'parent':    'spine_4', 'type': 2},     # 24
-    {'name':       'r_eye', 'parent':       'nose', 'type': 2},     # 25
-    {'name':       'l_eye', 'parent':       'nose', 'type': 2},     # 26
-    {'name':       'r_ear', 'parent':      'r_eye', 'type': 2},     # 27
-    {'name':       'l_ear', 'parent':      'l_eye', 'type': 2},     # 28
-    {'name':   'l_big_toe', 'parent':     'l_toes', 'type': 2},     # 29
-    {'name': 'l_small_toe', 'parent':     'l_toes', 'type': 2},     # 30
-    {'name':      'l_heel', 'parent':    'l_ankle', 'type': 2},     # 31
-    {'name':   'r_big_toe', 'parent':     'r_toes', 'type': 2},     # 32
-    {'name': 'r_small_toe', 'parent':     'r_toes', 'type': 2},     # 33
-    {'name':      'r_heel', 'parent':    'r_ankle', 'type': 2},     # 34
-    {'name':  'l_finder_1', 'parent':    'l_wrist', 'type': 2},     # 35
-    {'name':  'l_finder_2', 'parent':  'l_fingers', 'type': 2},     # 36
-    {'name':  'l_finder_3', 'parent':  'l_fingers', 'type': 2},     # 37
-    {'name':  'l_finder_4', 'parent':  'l_fingers', 'type': 2},     # 38
-    {'name':  'l_finder_5', 'parent':  'l_fingers', 'type': 2},     # 39
-    {'name':  'r_finder_1', 'parent':    'r_wrist', 'type': 2},     # 40
-    {'name':  'r_finder_2', 'parent':  'r_fingers', 'type': 2},     # 41
-    {'name':  'r_finder_3', 'parent':  'r_fingers', 'type': 2},     # 42
-    {'name':  'r_finder_4', 'parent':  'r_fingers', 'type': 2},     # 43
-    {'name':  'r_finder_5', 'parent':  'r_fingers', 'type': 2},     # 44
+    # {'name':        'nose', 'parent':    'spine_4', 'type': 2},     # 24
+    # {'name':       'r_eye', 'parent':       'nose', 'type': 2},     # 25
+    # {'name':       'l_eye', 'parent':       'nose', 'type': 2},     # 26
+    # {'name':       'r_ear', 'parent':      'r_eye', 'type': 2},     # 27
+    # {'name':       'l_ear', 'parent':      'l_eye', 'type': 2},     # 28
+    # {'name':   'l_big_toe', 'parent':     'l_toes', 'type': 2},     # 29
+    # {'name': 'l_small_toe', 'parent':     'l_toes', 'type': 2},     # 30
+    # {'name':      'l_heel', 'parent':    'l_ankle', 'type': 2},     # 31
+    # {'name':   'r_big_toe', 'parent':     'r_toes', 'type': 2},     # 32
+    # {'name': 'r_small_toe', 'parent':     'r_toes', 'type': 2},     # 33
+    # {'name':      'r_heel', 'parent':    'r_ankle', 'type': 2},     # 34
+    # {'name':  'l_finder_1', 'parent':    'l_wrist', 'type': 2},     # 35
+    # {'name':  'l_finder_2', 'parent':  'l_fingers', 'type': 2},     # 36
+    # {'name':  'l_finder_3', 'parent':  'l_fingers', 'type': 2},     # 37
+    # {'name':  'l_finder_4', 'parent':  'l_fingers', 'type': 2},     # 38
+    # {'name':  'l_finder_5', 'parent':  'l_fingers', 'type': 2},     # 39
+    # {'name':  'r_finder_1', 'parent':    'r_wrist', 'type': 2},     # 40
+    # {'name':  'r_finder_2', 'parent':  'r_fingers', 'type': 2},     # 41
+    # {'name':  'r_finder_3', 'parent':  'r_fingers', 'type': 2},     # 42
+    # {'name':  'r_finder_4', 'parent':  'r_fingers', 'type': 2},     # 43
+    # {'name':  'r_finder_5', 'parent':  'r_fingers', 'type': 2},     # 44
 ]
 
 def loadInertias(pathToInertia, mass_scale=1.):
@@ -104,16 +104,16 @@ def create_robot(smpl, shape=None, inertia_path=None, device=None):
         2: "fixed",
     }
     joint_colors = {
-        0: np.array([200,   0,   0, 1]),
-        1: np.array([  0, 200,   0, 1]),
-        2: np.array([200,   0,   0, 1]),
+        0: np.array([250,   0,   0, 1]),
+        1: np.array([  0, 250,   0, 1]),
+        2: np.array([250,   0,   0, 1]),
     }
     joint_ids = {}
 
-    body_radius = 0.015
+    body_radius = 0.01
 
     model = RobotModel(device=device)
-    model.gravity[3:6] = torch.tensor([0., 9.81, 0.], device=device)
+    model.gravity[:3] = torch.tensor([0., 9.81, 0.], device=device)
     model.end_effectors_ids = [10, 11, 15, 22, 23, 9]
     model.connections_ids = [9, 0]
 
@@ -209,7 +209,7 @@ def create_robot(smpl, shape=None, inertia_path=None, device=None):
                 parent_id=joint_id,
                 shape=shape,
                 body_offset=shape_placement,
-                color=np.array([200, 200, 200, 1]),
+                color=np.array([250, 250, 250, 1]),
             )
 
 

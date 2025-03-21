@@ -28,12 +28,12 @@ class RigidBody:
         """
         skew_com = skew_symmetric(self.com)
         self.inertia_matrix = torch.zeros(6, 6, device=self.device)
-        self.inertia_matrix[:3, :3] = self.inertia - self.mass * skew_com @ skew_com
-        self.inertia_matrix[:3, 3:] = self.mass * skew_com
-        self.inertia_matrix[3:, :3] = -self.mass * skew_com
-        # self.inertia_matrix[:3, 3:] = -self.mass * skew_com
-        # self.inertia_matrix[3:, :3] = +self.mass * skew_com
-        self.inertia_matrix[3:, 3:] = self.mass * torch.eye(3, device=self.device)
+
+        self.inertia_matrix[:3, :3] = self.mass * torch.eye(3, device=self.device)
+        self.inertia_matrix[:3, 3:] = -self.mass * skew_com
+        self.inertia_matrix[3:, :3] = self.mass * skew_com
+        self.inertia_matrix[3:, 3:] = self.inertia - self.mass * skew_com @ skew_com
+
 
 
 class GeometryObject:

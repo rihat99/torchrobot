@@ -24,7 +24,7 @@ class RobotModel:
 
         self.gravity = torch.zeros(6, device=device)
         # Set gravity along the z-axis.
-        self.gravity[5] = -9.81
+        self.gravity[1] = -9.81
 
         self.end_effectors_ids = []
         self.connections_ids = []
