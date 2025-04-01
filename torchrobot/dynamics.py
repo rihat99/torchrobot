@@ -213,7 +213,7 @@ def CentroidalMomentum(
                 
             body_mass = joint.body.mass
             body_com = joint.body.com
-            body_transform = joint_transforms[joint_id]
+            body_transform = joint_transforms[:, joint_id]
             body_masses.append(body_mass)
             
             rotation = torch.tensor([1.0, 0.0, 0.0, 0.0], device=model.device)
@@ -227,7 +227,7 @@ def CentroidalMomentum(
     for joint_id, joint in enumerate(model.joints):
         if joint.body is not None:
             
-            body_transform = joint_transforms[joint_id]
+            body_transform = joint_transforms[:, joint_id]
             com_transform = homogeneous_transform(com, torch.tensor([1.0, 0.0, 0.0, 0.0], device=model.device))
             com_transform = inverse_homogeneous_transform(com_transform) @ body_transform
 
@@ -235,11 +235,11 @@ def CentroidalMomentum(
             # A = adjoint_transform(com_transform)
             inertia_matrix = joint.body.inertia_matrix
             body_inertia = A.transpose(-1, -2) @ inertia_matrix.unsqueeze(0)
-            body_velocity = data.joint_velocities[joint_id]
+            body_velocity = data.joint_velocities[:, joint_id]
             vcom_world = (body_inertia @ body_velocity.unsqueeze(-1)).squeeze(-1)
             body_vcoms.append(vcom_world)
 
-            body_acceleration = data.joint_accelerations[joint_id]
+            body_acceleration = data.joint_accelerations[:, joint_id]
             body_force = (inertia_matrix.unsqueeze(0) @ body_acceleration.unsqueeze(-1)).squeeze(-1) +\
             (adjoint_bracket_operator_dual(body_velocity) @ (inertia_matrix.unsqueeze(0) @ body_velocity.unsqueeze(-1))).squeeze(-1)
             acom_world = (A.transpose(-1, -2) @ body_force.unsqueeze(-1)).squeeze(-1)

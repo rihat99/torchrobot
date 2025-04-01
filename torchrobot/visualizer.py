@@ -34,10 +34,10 @@ class Visualizer:
 
         # q[2] -= 5.0
 
-        ForwardKinematics(self.robot_model, self.data, q)
-        joint_trans = self.data.joint_transforms
+        ForwardKinematics(self.robot_model, self.data, q.unsqueeze(0))
+        joint_trans = self.data.joint_transforms.squeeze(0)
 
-        joint_config = self.data.split_config(q)
+        # joint_config = self.data.split_config(q)
 
         for i, geometry_object in enumerate(self.robot_model.geometry_objects):
             if geometry_object.parent_id is not None:

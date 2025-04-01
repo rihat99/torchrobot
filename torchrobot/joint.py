@@ -27,7 +27,11 @@ class Joint:
         self.twist = None
         self.acceleration = None
 
-    def compute_difference(self, q0, q1):
+    @staticmethod
+    def differentiate(q0, q1):
+        raise NotImplementedError
+    
+    def integrate(self, q, v, a, dt):
         raise NotImplementedError
 
     def process_config(self, config):
@@ -85,7 +89,8 @@ class SphericalJoint(Joint):
         self.default_q = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device)
         self.default_v = torch.zeros(3, device=self.device)
 
-    def compute_difference(self, q1, q0):
+    @staticmethod
+    def differentiate(q0, q1):
         """
         Computes the batched logarithmic map (difference) between two batches of unit quaternions.
         
@@ -97,48 +102,80 @@ class SphericalJoint(Joint):
             dq: Tensor of shape (B, 3) - rotation vector (axis-angle representation)
         """
         # Ensure inputs are normalized
-        q0 = q0 / q0.norm(dim=1, keepdim=True)
-        q1 = q1 / q1.norm(dim=1, keepdim=True)
+
+        q0 = q0 / (q0.norm(dim=-1, keepdim=True) + 1e-8)
+        q1 = q1 / (q1.norm(dim=-1, keepdim=True) + 1e-8)
 
         # Compute relative quaternion: q_rel = q0* (inverse) * q1
-        w0, xyz0 = q0[:, :1], q0[:, 1:]
-        w1, xyz1 = q1[:, :1], q1[:, 1:]
+        w0, xyz0 = q0[..., :1], q0[..., 1:]
+        w1, xyz1 = q1[..., :1], q1[..., 1:]
 
         # Quaternion conjugate (inverse for unit quats)
-        q0_conj = torch.cat([w0, -xyz0], dim=1)
+        q0_conj = torch.cat([w0, -xyz0], dim=-1)
 
         # Hamilton product: q_rel = q0_conj * q1
-        w0, x0, y0, z0 = q0_conj[:, 0], q0_conj[:, 1], q0_conj[:, 2], q0_conj[:, 3]
-        w1, x1, y1, z1 = q1[:, 0], q1[:, 1], q1[:, 2], q1[:, 3]
+        w0, x0, y0, z0 = q0_conj[..., 0], q0_conj[..., 1], q0_conj[..., 2], q0_conj[..., 3]
+        w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
 
         w = w0 * w1 - x0 * x1 - y0 * y1 - z0 * z1
         x = w0 * x1 + x0 * w1 + y0 * z1 - z0 * y1
         y = w0 * y1 - x0 * z1 + y0 * w1 + z0 * x1
         z = w0 * z1 + x0 * y1 - y0 * x1 + z0 * w1
 
-        q_rel = torch.stack([w, x, y, z], dim=1)
+        q_rel = torch.stack([w, x, y, z], dim=-1) + 1e-8
 
         # Normalize again (for safety)
-        q_rel = q_rel / q_rel.norm(dim=1, keepdim=True)
+        q_rel = q_rel / (q_rel.norm(dim=-1, keepdim=True) + 1e-8)
 
         # Extract axis and angle
-        w = q_rel[:, 0].clamp(-1.0, 1.0)  # for numerical safety
-        v = q_rel[:, 1:]
+        w = q_rel[..., 0].clamp(-1.0, 1.0)  # for numerical safety
+        v = q_rel[..., 1:]
 
-        theta = 2.0 * torch.acos(w)  # angle
-        sin_theta_half = torch.sqrt(1.0 - w**2 + 1e-8)  # avoid divide-by-zero
+        # Use the atan2 formulation: note that ||v|| is sin(theta/2)
+        r = v.norm(dim=-1, keepdim=True)  # equals sin(theta/2)
+        # theta = 2 * atan2(||v||, w)
+        theta = 2.0 * torch.atan2(r, w.unsqueeze(-1))
 
-        # Avoid division by zero by using Taylor expansion for small angles
-        small_angle = sin_theta_half < 1e-4
-        scale = theta / sin_theta_half
+        # Define a differentiable sinc function: sinc(x) = sin(x)/x with Taylor expansion near zero
+        def sinc(x):
+            small = x.abs() < 1e-4
+            return torch.where(small, 1 - x**2/6.0, torch.sin(x)/x)
 
-        # For small angles, use linear approximation: scale ≈ 2
-        scale[small_angle] = 2.0
+        half_theta = theta / 2.0
+        # Compute the scale factor in a fully differentiable manner.
+        # Note that as theta -> 0, sin(theta/2)/(theta/2) -> 1, so scale -> 2.
+        scale = 2.0 / (sinc(half_theta) + 1e-8)
 
         # Final rotation vector
-        dq = v * scale.unsqueeze(1)
+        dq = v * scale
 
         return dq
+
+    def integrate(self, q, v, a, dt):
+        """
+        Integrate spherical joint using Lie group integration (SO(3))
+
+        Args:
+            q: (..., 4) quaternion [w, x, y, z]
+            v: (..., 3) angular velocity
+            a: (..., 3) angular acceleration
+            dt: float
+
+        Returns:
+            q_next: (..., 4)
+            w_next: (..., 3)
+        """
+        v_next = v + a * dt
+        delta_rotvec = v_next * dt  # (rotation vector)
+        # delta_rotvec = v * dt  # (rotation vector) (semi-implicit)
+        delta_q = exp_map_so3(delta_rotvec)  # (quaternion)
+
+        # Quaternion multiplication: q_next = q * delta_q
+
+        q_next = quat_mul(q, delta_q)
+        q_next = q_next / q_next.norm(dim=-1, keepdim=True)  # Normalize for safety
+
+        return q_next, v_next
 
     def process_config(self, config):
         """
@@ -190,74 +227,102 @@ class FreeFlyerJoint(Joint):
         self.default_q = torch.tensor([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], device=self.device)
         self.default_v = torch.zeros(6, device=self.device)
 
-    def compute_difference(self, s1, s0):
+    @staticmethod
+    def differentiate(q1, q2, eps=1e-8):
+        # Split into translation and rotation parts:
+        p1, p2 = q1[:, :3], q2[:, :3]
+        quat1, quat2 = q1[:, 3:], q2[:, 3:]
+        
+        # Compute rotation matrix from the first quaternion:
+        R1 = quat_to_rot(quat1)  # shape (B, 3, 3)
+        
+        # Relative translation in the frame of the first configuration:
+        p_diff = (p2 - p1).unsqueeze(2)            # shape (B, 3, 1)
+        p_rel = torch.bmm(R1.transpose(1, 2), p_diff).squeeze(2)  # shape (B, 3)
+        
+        # Compute relative rotation: q_rel = conj(quat1) * quat2
+        q1_conj = quat_conjugate(quat1)
+        q_rel = quat_mul(q1_conj, quat2)
+        # Normalize to avoid numerical drift:
+        q_rel = q_rel / (q_rel.norm(dim=1, keepdim=True) + eps)
+        
+        # Compute the rotational error (log map of SO(3)):
+        phi = so3_log(q_rel)  # shape (B, 3)
+        
+        # Compute theta as the norm of the rotation vector (without adding eps)
+        theta = torch.norm(phi, dim=1, keepdim=True)  # shape (B, 1)
+        
+        # Precompute some matrices for the left Jacobian inverse:
+        B = q1.shape[0]
+        I = torch.eye(3, device=q1.device, dtype=q1.dtype).unsqueeze(0).expand(B, -1, -1)  # (B, 3, 3)
+        hat_phi = skew_symmetric(phi)  # (B, 3, 3)
+        hat_phi2 = torch.bmm(hat_phi, hat_phi)  # (B, 3, 3)
+        
+        # Define a helper function to compute the factor in a differentiable manner.
+        def safe_factor(theta, eps=1e-8, small_thresh=1e-3):
+            # Compute sin and cos of theta safely within this function
+            sin_theta = torch.sin(theta)
+            cos_theta = torch.cos(theta)
+            # Protect denominators by adding eps to avoid division by zero.
+            # Note: Even though these values aren't used when theta is small,
+            # they must not produce NaNs.
+            factor_large = 1.0 / (theta**2 + eps) - (1 + cos_theta) / (2 * theta * sin_theta + eps)
+            # Use Taylor expansion for small theta: factor ≈ 1/12 - theta^2/720
+            factor_small = 1.0/12.0 - theta**2/720.0
+            # Use torch.where to choose the appropriate factor.
+            return torch.where(theta < small_thresh, factor_small, factor_large)
+        
+        # Compute the safe factor:
+        factor = safe_factor(theta)
+        
+        # Compute the inverse left Jacobian:
+        # J_inv = I - 0.5 * hat_phi + factor * hat_phi^2
+        # (unsqueeze factor to match dimensions)
+        J_inv = I - 0.5 * hat_phi + factor.unsqueeze(-1) * hat_phi2  # shape (B, 3, 3)
+        
+        # Compute translational error corrected by the inverse left Jacobian:
+        rho = torch.bmm(J_inv, p_rel.unsqueeze(2)).squeeze(2)  # shape (B, 3)
+        
+        # Concatenate: (translation error, rotation error)
+        diff = torch.cat([rho, phi], dim=1)  # shape (B, 6)
+        return diff
+
+    def integrate(self, s, v, a, dt):
         """
-        Batched SE(3) log map (difference) between poses (p0, q0) and (p1, q1)
+        Integrate free-flyer joint (SE(3)) using Lie group exponential map.
 
         Args:
-            p0: Tensor (B, 3) - initial translation
-            q0: Tensor (B, 4) - initial quaternion (w, x, y, z)
-            p1: Tensor (B, 3) - target translation
-            q1: Tensor (B, 4) - target quaternion
+            p: (B, 3) current position
+            q: (B, 4) current orientation (unit quaternion)
+            v: (B, 6) current spatial velocity [omega, v_lin] in base frame
+            a: (B, 6) current spatial acceleration [alpha, a_lin] in base frame
+            dt: float time step
 
         Returns:
-            delta_q: Tensor (B, 6) - [angular (3), linear (3)] velocity vector in base frame
+            p_next: (B, 3) next position
+            q_next: (B, 4) next orientation
+            v_next: (B, 6) next spatial velocity
         """
-        p0, q0 = s0[..., :3], s0[..., 3:]
-        p1, q1 = s1[..., :3], s1[..., 3:]
+        p, q = s[..., :3], s[..., 3:]
 
-        # --- Normalize quaternions ---
-        q0 = q0 / q0.norm(dim=1, keepdim=True)
-        q1 = q1 / q1.norm(dim=1, keepdim=True)
+        # 1. Integrate acceleration
+        v_next = v + a * dt
 
-        # --- Rotation part (log of relative quaternion) ---
-        w0, xyz0 = q0[:, :1], q0[:, 1:]
-        w1, xyz1 = q1[:, :1], q1[:, 1:]
+        # 2. Integrate motion using exponential map
+        delta_q, delta_p = exp_map_se3(v_next * dt)  # ∆pose in local frame
+        # delta_q, delta_p = exp_map_se3(v * dt)  # ∆pose in local frame (semi-implicit)
 
-        q0_conj = torch.cat([w0, -xyz0], dim=1)
+        # Rotate delta_p into world frame
+        delta_p_world = quat_rotate(q, delta_p)
 
-        # Hamilton product: q_rel = q0_conj * q1
-        def quat_mul(q, r):
-            w1, x1, y1, z1 = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
-            w2, x2, y2, z2 = r[:, 0], r[:, 1], r[:, 2], r[:, 3]
-            return torch.stack([
-                w1*w2 - x1*x2 - y1*y2 - z1*z2,
-                w1*x2 + x1*w2 + y1*z2 - z1*y2,
-                w1*y2 - x1*z2 + y1*w2 + z1*x2,
-                w1*z2 + x1*y2 - y1*x2 + z1*w2,
-            ], dim=1)
+        # Update position and orientation
+        p_next = p + delta_p_world
+        q_next = quat_mul(q, delta_q)
+        q_next = q_next / q_next.norm(dim=-1, keepdim=True)
 
-        q_rel = quat_mul(q0_conj, q1)
-        q_rel = q_rel / q_rel.norm(dim=1, keepdim=True)
+        s_next = torch.cat([p_next, q_next], dim=-1)
 
-        w = q_rel[:, 0].clamp(-1.0, 1.0)
-        v = q_rel[:, 1:]
-        theta = 2.0 * torch.acos(w)
-        sin_theta_half = torch.sqrt(1.0 - w**2 + 1e-8)
-
-        small = sin_theta_half < 1e-4
-        scale = theta / sin_theta_half
-        scale[small] = 2.0
-        omega = v * scale.unsqueeze(1)  # (B, 3)
-
-        # --- Translation part ---
-        # Compute relative translation in world frame
-        dp = p1 - p0  # (B, 3)
-
-        # Rotate into base frame using q0⁻¹
-        # Equivalent to applying q0_conj to dp
-        def quat_rotate(q, v):
-            # Rotate vector v by quaternion q (batch)
-            qvec = q[:, 1:]
-            uv = torch.cross(qvec, v, dim=1)
-            uuv = torch.cross(qvec, uv, dim=1)
-            return v + 2 * (q[:, :1] * uv + uuv)
-
-        v_linear = quat_rotate(q0_conj, dp)  # (B, 3)
-
-        # --- Combine into motion vector ---
-        delta_q = torch.cat([v_linear, omega], dim=1)  # (B, 6)
-        return delta_q
+        return s_next, v_next
 
     def process_config(self, config):
         """

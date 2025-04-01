@@ -109,68 +109,44 @@ class RobotData:
 
             else:
                 raise ValueError(f"Unsupported joint type: {joint['type']}")
+        
+        for i in range(self.q_.shape[0] - 1):
             
-        # v_ = self.interpolate_data(config, dt)
-        # a_ = self.interpolate_data(v_, dt)
-
-        # base_rotation = self.q_[:, 3:7]
-        # base_rotation = quaternion_to_rotation_matrix(base_rotation).transpose(-1, -2)
-        
-        # self.v_[:, 0:3] = RobotData.rotate_axis_angle(self.v_[:, 0:3], base_rotation)
-        # self.v_[:, 3:6] = RobotData.rotate_axis_angle(self.v_[:, 3:6], base_rotation)
-        # self.a_[:, 0:3] = RobotData.rotate_axis_angle(self.a_[:, 0:3], base_rotation)
-        # self.a_[:, 3:6] = RobotData.rotate_axis_angle(self.a_[:, 3:6], base_rotation)
-
-        # self.v_[:, :3] *= -1
-        # self.a_[:, :3] *= -1
-
-        # offset = model.joints[0].offset
-        # base_transform = homogeneous_transform(self.q_[:, :3], self.q_[:, 3:7])
-        # A = adjoint_transform(offset @ base_transform)
-        # base_v = (A @ v_[:, :6].unsqueeze(-1)).squeeze(-1)
-        # base_a = (A @ a_[:, :6].unsqueeze(-1)).squeeze(-1)
-
-        # self.v_ = torch.cat([base_v, v_[:, 6:]], dim=-1)
-        # self.a_ = torch.cat([base_a, a_[:, 6:]], dim=-1)
-
-        # self.v_ = v_
-        # self.a_ = a_
-        
-
-        # self.q_ = self.q_[2:]
-        # self.v_ = self.v_[1:]
+            if (self.q_[i, 3:7] * self.q_[i + 1, 3:7]).sum() < 0:
+                self.q_[i + 1, 3:7] *= -1
+    
             
         return self.q_
 
     
-    @staticmethod
-    def interpolate_data(data, dt):
-        begin = (data[1] - data[0]) / dt
-        end = (data[-1] - data[-2]) / dt
-        mid = (data[2:] - data[:-2]) / (2 * dt)
+    # @staticmethod
+    # def interpolate_data(data, dt):
+    #     begin = (data[1] - data[0]) / dt
+    #     end = (data[-1] - data[-2]) / dt
+    #     mid = (data[2:] - data[:-2]) / (2 * dt)
 
-        return torch.cat([begin.unsqueeze(0), mid, end.unsqueeze(0)], dim=0)
+    #     return torch.cat([begin.unsqueeze(0), mid, end.unsqueeze(0)], dim=0)
 
-        # return (data[1:] - data[:-1]) / dt
+    #     # return (data[1:] - data[:-1]) / dt
 
 
-    @staticmethod
-    def rotate_axis_angle(axis_angle, rotation):
-        """
-        Rotates an axis-angle vector by a given rotation matrix.
+    # @staticmethod
+    # def rotate_axis_angle(axis_angle, rotation):
+    #     """
+    #     Rotates an axis-angle vector by a given rotation matrix.
         
-        Parameters:
-          - axis_angle: tensor of shape (3,) representing the axis-angle vector.
-          - rotation: tensor of shape (3, 3) representing the rotation matrix.
+    #     Parameters:
+    #       - axis_angle: tensor of shape (3,) representing the axis-angle vector.
+    #       - rotation: tensor of shape (3, 3) representing the rotation matrix.
           
-        Returns:
-          - rotated_axis_angle: tensor of shape (3,) representing the rotated axis-angle vector.
-        """
+    #     Returns:
+    #       - rotated_axis_angle: tensor of shape (3,) representing the rotated axis-angle vector.
+    #     """
         
-        rot_mat = axis_angle_to_matrix(axis_angle)
+    #     rot_mat = axis_angle_to_matrix(axis_angle)
 
-        new_rot = rotation @ rot_mat
-        return matrix_to_axis_angle(new_rot)
+    #     new_rot = rotation @ rot_mat
+    #     return matrix_to_axis_angle(new_rot)
 
         
         
