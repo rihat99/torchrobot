@@ -70,7 +70,7 @@ def loadInertias(pathToInertia, mass_scale=1.):
             I = inertias_temp[k][1] * mass_scale
             inertias[k] = (mass, I)
 
-        print("inertias loaded from "+pathToInertia)
+        # print("inertias loaded from "+pathToInertia)
         return inertias
 
 def create_robot(smpl, shape=None, inertia_path=None, device=None):
