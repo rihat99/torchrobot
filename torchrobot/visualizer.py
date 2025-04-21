@@ -20,7 +20,7 @@ class Visualizer:
 
         self.robot_model = robot_model
         self.data = data
-        self.vis.delete()
+        # self.vis.delete()
 
 
         for i, geometry_object in enumerate(self.robot_model.geometry_objects):

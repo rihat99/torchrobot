@@ -73,7 +73,7 @@ def loadInertias(pathToInertia, mass_scale=1.):
         # print("inertias loaded from "+pathToInertia)
         return inertias
 
-def create_robot(smpl, shape=None, inertia_path=None, device=None):
+def create_robot(smpl, shape=None, device=None):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -90,7 +90,10 @@ def create_robot(smpl, shape=None, inertia_path=None, device=None):
 
     neutral_pose = output.joints.squeeze()
 
-    inertias = loadInertias(inertia_path)
+    # if inertias is None:
+    #     if inertia_path is None:
+    #         raise ValueError("Either inertias or inertia_path must be provided.")
+    inertias = loadInertias("data/smpl/full_body_inertia.pkl")
 
     joint_name_to_id = {joint["name"]: i for i, joint in enumerate(joint_info)}
     joint_children = {joint["name"]: [] for joint in joint_info}
@@ -166,8 +169,11 @@ def create_robot(smpl, shape=None, inertia_path=None, device=None):
         mass = torch.tensor(inertias[joint_name + '_link'][0], device=device)
         inertia_matrix = torch.tensor(inertias[joint_name + '_link'][1], device=device)
 
-        model.addBody(joint_name, joint_id, mass, com, inertia_matrix)
+        # mass = torch.tensor(1.0, device=device, dtype=torch.float32)
+        # inertia_matrix = torch.eye(3, device=device, dtype=torch.float32)
+        # com = torch.tensor([0., 0., 0.], device=device, dtype=torch.float32)
 
+        model.addBody(joint_name, joint_id, mass, com, inertia_matrix)
 
 
     # Add geometry objects to joints
@@ -211,7 +217,5 @@ def create_robot(smpl, shape=None, inertia_path=None, device=None):
                 body_offset=shape_placement,
                 color=np.array([250, 250, 250, 1]),
             )
-
-
 
     return model

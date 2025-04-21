@@ -33,6 +33,7 @@ class RigidBody:
         self.inertia_matrix[:3, 3:] = -self.mass * skew_com
         self.inertia_matrix[3:, :3] = self.mass * skew_com
         self.inertia_matrix[3:, 3:] = self.inertia - self.mass * skew_com @ skew_com
+        # self.inertia_matrix[3:, 3:] = self.inertia
 
 
 
